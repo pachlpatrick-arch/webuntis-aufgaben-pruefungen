@@ -292,9 +292,6 @@ function normalizeHomeworkData(
 }
 
 function findHomeworkSubject(
-  homework,
-  lessons
-) {
   const lesson = lessons.find(
     (candidate) =>
       Number(candidate?.id) ===
@@ -651,10 +648,14 @@ async function main() {
       "WebUntis-Anmeldung erfolgreich."
     );
 
-    const [
-      homeworkData,
-      exams
-    ] = await Promise.all([
+console.log(
+  JSON.stringify(
+    homeworkData.homeworks[0],
+    null,
+    2
+  )
+);
+``
       getHomeworkAndRelatedLessons(
         untis,
         startDate,
