@@ -516,5 +516,247 @@ function createCalendar(events) {
     "VERSION:2.0",
     "CALSCALE:GREGORIAN",
     "METHOD:PUBLISH",
-
     "PRODID:-//WebUntis Aufgaben und Pruefungen//DE",
+    `X-WR-CALNAME:${escapeIcal(
+      CONFIG.calendarName
+    )}`,
+    `X-WR-TIMEZONE:${CONFIG.timezone}`,
+    "REFRESH-INTERVAL;VALUE=DURATION:PT5H",
+    "X-PUBLISHED-TTL:PT5H",
+    "BEGIN:VTIMEZONE",
+    `TZID:${CONFIG.timezone}`,
+    "X-LIC-LOCATION:Europe/Vienna",
+    "BEGIN:DAYLIGHT",
+    "TZOFFSETFROM:+0100",
+    "TZOFFSETTO:+0200",
+    "TZNAME:CEST",
+    "DTSTART:19700329T020000",
+    "RRULE:FREQ=YEARLY;BYMONTH=3;BYDAY=-1SU",
+    "END:DAYLIGHT",
+    "BEGIN:STANDARD",
+    "TZOFFSETFROM:+0200",
+    "TZOFFSETTO:+0100",
+    "TZNAME:CET",
+    "DTSTART:19701025T030000",
+    "RRULE:FREQ=YEARLY;BYMONTH=10;BYDAY=-1SU",
+    "END:STANDARD",
+    "END:VTIMEZONE",
+    ...events,
+    "END:VCALENDAR",
+    ""
+  ].join("\r\n");
+}
+
+async function getHomeworkAndRelatedLessons(
+  untis,
+  startDate,
+  endDate
+) {
+  try {
+    const combined =
+      await untis.getHomeWorkAndLessons(
+        startDate,
+        endDate
+      );
+
+    const normalized =
+      normalizeHomeworkData(
+        combined
+      );
+
+    if (
+      normalized.homeworks.length > 0
+    ) {
+      return normalized;
+    }
+  } catch (error) {
+    console.log(
+      "Kombinierter Hausaufgabenabruf nicht verfügbar. Verwende Fallback."
+    );
+  }
+
+  const [
+    homeworks,
+    timetable
+  ] = await Promise.all([
+    untis.getHomeWorksFor(
+      startDate,
+      endDate
+    ),
+
+    untis.getOwnTimetableForRange(
+      startDate,
+      endDate
+    )
+  ]);
+
+  return {
+    homeworks:
+      Array.isArray(homeworks)
+        ? homeworks
+        : [],
+
+    lessons:
+      Array.isArray(timetable)
+        ? timetable
+        : []
+  };
+}
+
+async function main() {
+  required(
+    "WEBUNTIS_USERNAME",
+    CONFIG.username
+  );
+
+  required(
+    "WEBUNTIS_PASSWORD",
+    CONFIG.password
+  );
+
+  console.log(
+    `WebUntis-Server: ${CONFIG.server}`
+  );
+
+  console.log(
+    `Schulkennung: ${CONFIG.school}`
+  );
+
+  console.log(
+    `Ausgabedatei: ${CONFIG.outputFile}`
+  );
+
+  const untis = new WebUntis(
+    CONFIG.school,
+    CONFIG.username,
+    CONFIG.password,
+    CONFIG.server,
+    "GitHub-WebUntis-Aufgaben-Pruefungen"
+  );
+
+  const startDate = addDays(
+    new Date(),
+    -CONFIG.daysPast
+  );
+
+  const endDate = addDays(
+    new Date(),
+    CONFIG.daysFuture
+  );
+
+  try {
+    await untis.login();
+
+    console.log(
+      "WebUntis-Anmeldung erfolgreich."
+    );
+
+    const [
+      homeworkData,
+      exams
+    ] = await Promise.all([
+      getHomeworkAndRelatedLessons(
+        untis,
+        startDate,
+        endDate
+      ),
+
+      untis.getExamsForRange(
+        startDate,
+        endDate
+      )
+    ]);
+
+    if (
+      !Array.isArray(
+        homeworkData.homeworks
+      )
+    ) {
+      throw new Error(
+        "WebUntis hat keine gültige Hausaufgabenliste geliefert."
+      );
+    }
+
+    if (!Array.isArray(exams)) {
+      throw new Error(
+        "WebUntis hat keine gültige Prüfungsliste geliefert."
+      );
+    }
+
+    const stamp = utcStamp();
+
+    const homeworkEvents =
+      homeworkData.homeworks.map(
+        (homework) =>
+          homeworkEvent(
+            homework,
+            homeworkData.lessons,
+            stamp
+          )
+      );
+
+    const examEvents =
+      exams.map(
+        (exam) =>
+          examEvent(
+            exam,
+            stamp
+          )
+      );
+
+    const events = [
+      ...homeworkEvents,
+      ...examEvents
+    ];
+
+    const calendar =
+      createCalendar(events);
+
+    fs.writeFileSync(
+      CONFIG.outputFile,
+      calendar,
+      {
+        encoding: "utf8"
+      }
+    );
+
+    console.log(
+      `Hausaufgaben: ${homeworkData.homeworks.length}`
+    );
+
+    console.log(
+      `Prüfungen: ${exams.length}`
+    );
+
+    console.log(
+      `Kalendereinträge insgesamt: ${events.length}`
+    );
+
+    console.log(
+      `${CONFIG.outputFile} wurde erfolgreich gespeichert.`
+    );
+  } finally {
+    try {
+      await untis.logout();
+    } catch {
+      console.log(
+        "WebUntis-Abmeldung konnte nicht durchgeführt werden."
+      );
+    }
+  }
+}
+
+main().catch((error) => {
+  console.error(
+    "Fehler beim Erzeugen des Kalenders:"
+  );
+
+  console.error(
+    error?.response?.data ||
+      error?.stack ||
+      error?.message ||
+      error
+  );
+
+  process.exit(1);
+});
