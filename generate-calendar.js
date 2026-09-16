@@ -517,4 +517,4 @@ function createCalendar(events) {
     "CALSCALE:GREGORIAN",
     "METHOD:PUBLISH",
 
-    "PRODID:-/
+    "PRODID:-//WebUntis Aufgaben und Pruefungen//DE",
