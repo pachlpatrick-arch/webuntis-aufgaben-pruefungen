@@ -691,3 +691,91 @@ async function main() {
         endDate
       )
     ]);
+    if (
+      !Array.isArray(
+        homeworkData.homeworks
+      )
+    ) {
+      throw new Error(
+        "WebUntis hat keine gültige Hausaufgabenliste geliefert."
+      );
+    }
+
+    if (!Array.isArray(exams)) {
+      throw new Error(
+        "WebUntis hat keine gültige Prüfungsliste geliefert."
+      );
+    }
+
+    const stamp = utcStamp();
+
+    const homeworkEvents =
+      homeworkData.homeworks.map(
+        (homework) =>
+          homeworkEvent(
+            homework,
+            homeworkData.lessons,
+            stamp
+          )
+      );
+
+    const examEvents =
+      exams.map(
+        (exam) =>
+          examEvent(
+            exam,
+            stamp
+          )
+      );
+
+    const events = [
+      ...homeworkEvents,
+      ...examEvents
+    ];
+
+    fs.writeFileSync(
+      CONFIG.outputFile,
+      createCalendar(events),
+      "utf8"
+    );
+
+    console.log(
+      `Hausaufgaben: ${homeworkData.homeworks.length}`
+    );
+
+    console.log(
+      `Prüfungen: ${exams.length}`
+    );
+
+    console.log(
+      `Kalendereinträge insgesamt: ${events.length}`
+    );
+
+    console.log(
+      `${CONFIG.outputFile} wurde erfolgreich gespeichert.`
+    );
+  } finally {
+    try {
+      await untis.logout();
+    } catch {
+      console.log(
+        "WebUntis-Abmeldung konnte nicht durchgeführt werden."
+      );
+    }
+  }
+}
+
+main().catch((error) => {
+  console.error(
+    "Fehler beim Erzeugen des Kalenders:"
+  );
+
+  console.error(
+    error?.response?.data ||
+      error?.stack ||
+      error?.message ||
+      error
+  );
+
+  process.exit(1);
+});
