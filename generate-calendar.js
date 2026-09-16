@@ -684,3 +684,10 @@ async function main() {
         untis,
         startDate,
         endDate
+      ),
+
+      untis.getExamsForRange(
+        startDate,
+        endDate
+      )
+    ]);
