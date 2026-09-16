@@ -1,1 +1,14 @@
-
+{
+  "name": "webuntis-aufgaben-pruefungen",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Eigener iCal-Kalender für WebUntis-Hausaufgaben und Prüfungen",
+  "type": "commonjs",
+  "scripts": {
+    "generate": "node generate-calendar.js",
+    "check": "node --check generate-calendar.js"
+  },
+  "dependencies": {
+    "webuntis": "2.2.1"
+  }
+}
