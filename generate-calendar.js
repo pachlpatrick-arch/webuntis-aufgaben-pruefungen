@@ -150,7 +150,6 @@ function escapeIcal(value) {
     .replace(/,/g, "\\,")
     .replace(/;/g, "\\;");
 }
-
 function foldLine(line) {
   if (
     Buffer.byteLength(
@@ -161,43 +160,37 @@ function foldLine(line) {
     return line;
   }
 
-  const lines = [];
+  const result = [];
 
   let current = "";
-  let currentLength = 0;
+  let length = 0;
 
   for (const character of line) {
-    const characterLength =
+    const size =
       Buffer.byteLength(
         character,
         "utf8"
       );
 
-    if (
-      currentLength +
-        characterLength >
-      73
-    ) {
-      lines.push(current);
+    if (length + size > 73) {
+      result.push(current);
 
       current =
         ` ${character}`;
 
-      currentLength =
-        1 + characterLength;
+      length =
+        1 + size;
     } else {
       current += character;
-
-      currentLength +=
-        characterLength;
+      length += size;
     }
   }
 
   if (current) {
-    lines.push(current);
+    result.push(current);
   }
 
-  return lines.join("\r\n");
+  return result.join("\r\n");
 }
 
 function createUid(type, item) {
@@ -224,36 +217,35 @@ function createUid(type, item) {
   );
 }
 
-function uniqueNames(items) {
-  if (!Array.isArray(items)) {
-    return [];
+function firstText(...values) {
+  for (const value of values) {
+    if (
+      typeof value === "string" &&
+      value.trim()
+    ) {
+      return value.trim();
+    }
+
+    if (
+      value &&
+      typeof value === "object"
+    ) {
+      const text =
+        value.name ||
+        value.longname ||
+        value.displayName ||
+        value.shortName;
+
+      if (
+        typeof text === "string" &&
+        text.trim()
+      ) {
+        return text.trim();
+      }
+    }
   }
 
-  return [
-    ...new Set(
-      items
-        .map(
-          (item) =>
-            item?.longname ||
-            item?.name ||
-            item?.displayName ||
-            item
-        )
-        .filter(Boolean)
-        .map(String)
-    )
-  ];
-}
-
-function lessonSubjects(lesson) {
-  if (!lesson) {
-    return [];
-  }
-
-  return uniqueNames(
-    lesson.su ||
-      lesson.subjects
-  );
+  return "";
 }
 
 function normalizeHomeworkData(
@@ -291,44 +283,64 @@ function normalizeHomeworkData(
   };
 }
 
-function findHomeworkSubject(
-  const lesson = lessons.find(
-    (candidate) =>
-      Number(candidate?.id) ===
+function matchingLesson(
+  homework,
+  lessons
+) {
+  return lessons.find(
+    (lesson) =>
+      Number(lesson?.id) ===
         Number(
-          homework.lessonId
+          homework?.lessonId
         ) ||
       Number(
-        candidate?.lessonId
+        lesson?.lessonId
       ) ===
         Number(
-          homework.lessonId
+          homework?.lessonId
         ) ||
       Number(
-        candidate?.lsnumber
+        lesson?.lsnumber
       ) ===
         Number(
-          homework.lessonId
+          homework?.lessonId
         )
-  );
-
-  const subject =
-    lessonSubjects(lesson)
-      .join(", ");
-
-  return (
-    subject ||
-    "Hausaufgabe"
   );
 }
 
+function homeworkSubject(
+  homework,
+  lessons
+) {
+  const lesson =
+    matchingLesson(
+      homework,
+      lessons
+    );
+
+  return (
+    firstText(
+      homework.subject,
+      homework.subjectName,
+      homework.subjectLongName,
+      homework.su?.[0],
+      homework.subjects?.[0],
+      lesson?.subject,
+      lesson?.subjectName,
+      lesson?.subjectLongName,
+      lesson?.su?.[0],
+      lesson?.subjects?.[0]
+    ) ||
+    "Hausaufgabe"
+  );
+}
 function homeworkEvent(
   homework,
   lessons,
   stamp
 ) {
   const subject =
-    findHomeworkSubject(
+    homeworkSubject(
       homework,
       lessons
     );
@@ -398,21 +410,23 @@ function homeworkEvent(
     .join("\r\n");
 }
 
-function examEvent(
-  exam,
-  stamp
-) {
-  const examType = String(
-    exam.examType ||
-      exam.name ||
-      "Prüfung"
-  ).trim();
+function examEvent(exam, stamp) {
+  const examType =
+    firstText(
+      exam.examType,
+      exam.type,
+      exam.name
+    ) ||
+    "Prüfung";
 
-  const subject = String(
-    exam.subject ||
-      exam.name ||
-      "Prüfung"
-  ).trim();
+  const subject =
+    firstText(
+      exam.subject,
+      exam.subjectName,
+      exam.su?.[0],
+      exam.name
+    ) ||
+    "Prüfung";
 
   const description = [
     exam.text
@@ -506,45 +520,60 @@ function examEvent(
     .map(foldLine)
     .join("\r\n");
 }
-
 function createCalendar(events) {
   return [
     "BEGIN:VCALENDAR",
     "VERSION:2.0",
     "CALSCALE:GREGORIAN",
     "METHOD:PUBLISH",
+
     "PRODID:-//WebUntis Aufgaben und Pruefungen//DE",
+
     `X-WR-CALNAME:${escapeIcal(
       CONFIG.calendarName
     )}`,
+
     `X-WR-TIMEZONE:${CONFIG.timezone}`,
+
     "REFRESH-INTERVAL;VALUE=DURATION:PT5H",
     "X-PUBLISHED-TTL:PT5H",
+
     "BEGIN:VTIMEZONE",
+
     `TZID:${CONFIG.timezone}`,
+
     "X-LIC-LOCATION:Europe/Vienna",
+
     "BEGIN:DAYLIGHT",
     "TZOFFSETFROM:+0100",
     "TZOFFSETTO:+0200",
     "TZNAME:CEST",
     "DTSTART:19700329T020000",
+
     "RRULE:FREQ=YEARLY;BYMONTH=3;BYDAY=-1SU",
+
     "END:DAYLIGHT",
+
     "BEGIN:STANDARD",
     "TZOFFSETFROM:+0200",
     "TZOFFSETTO:+0100",
     "TZNAME:CET",
     "DTSTART:19701025T030000",
+
     "RRULE:FREQ=YEARLY;BYMONTH=10;BYDAY=-1SU",
+
     "END:STANDARD",
+
     "END:VTIMEZONE",
+
     ...events,
+
     "END:VCALENDAR",
     ""
   ].join("\r\n");
 }
 
-async function getHomeworkAndRelatedLessons(
+async function getHomeworkAndLessons(
   untis,
   startDate,
   endDate
@@ -599,7 +628,6 @@ async function getHomeworkAndRelatedLessons(
         : []
   };
 }
-
 async function main() {
   required(
     "WEBUNTIS_USERNAME",
@@ -648,116 +676,11 @@ async function main() {
       "WebUntis-Anmeldung erfolgreich."
     );
 
-console.log(
-  JSON.stringify(
-    homeworkData.homeworks[0],
-    null,
-    2
-  )
-);
-``
-      getHomeworkAndRelatedLessons(
+    const [
+      homeworkData,
+      exams
+    ] = await Promise.all([
+      getHomeworkAndLessons(
         untis,
         startDate,
         endDate
-      ),
-
-      untis.getExamsForRange(
-        startDate,
-        endDate
-      )
-    ]);
-
-    if (
-      !Array.isArray(
-        homeworkData.homeworks
-      )
-    ) {
-      throw new Error(
-        "WebUntis hat keine gültige Hausaufgabenliste geliefert."
-      );
-    }
-
-    if (!Array.isArray(exams)) {
-      throw new Error(
-        "WebUntis hat keine gültige Prüfungsliste geliefert."
-      );
-    }
-
-    const stamp = utcStamp();
-
-    const homeworkEvents =
-      homeworkData.homeworks.map(
-        (homework) =>
-          homeworkEvent(
-            homework,
-            homeworkData.lessons,
-            stamp
-          )
-      );
-
-    const examEvents =
-      exams.map(
-        (exam) =>
-          examEvent(
-            exam,
-            stamp
-          )
-      );
-
-    const events = [
-      ...homeworkEvents,
-      ...examEvents
-    ];
-
-    const calendar =
-      createCalendar(events);
-
-    fs.writeFileSync(
-      CONFIG.outputFile,
-      calendar,
-      {
-        encoding: "utf8"
-      }
-    );
-
-    console.log(
-      `Hausaufgaben: ${homeworkData.homeworks.length}`
-    );
-
-    console.log(
-      `Prüfungen: ${exams.length}`
-    );
-
-    console.log(
-      `Kalendereinträge insgesamt: ${events.length}`
-    );
-
-    console.log(
-      `${CONFIG.outputFile} wurde erfolgreich gespeichert.`
-    );
-  } finally {
-    try {
-      await untis.logout();
-    } catch {
-      console.log(
-        "WebUntis-Abmeldung konnte nicht durchgeführt werden."
-      );
-    }
-  }
-}
-
-main().catch((error) => {
-  console.error(
-    "Fehler beim Erzeugen des Kalenders:"
-  );
-
-  console.error(
-    error?.response?.data ||
-      error?.stack ||
-      error?.message ||
-      error
-  );
-
-  process.exit(1);
-});
