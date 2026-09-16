@@ -1,1 +1,111 @@
+name: WebUntis Aufgaben und Prüfungen aktualisieren
 
+on:
+  schedule:
+    - cron: "0 * * * *"
+
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: webuntis-aufgaben-pruefungen
+  cancel-in-progress: false
+
+jobs:
+  update-calendar:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Repository auschecken
+        uses: actions/checkout@v4
+
+      - name: Wiener Lokalzeit prüfen
+        id: schedule
+        shell: bash
+        run: |
+          LOCAL_DAY="$(TZ=Europe/Vienna date +%u)"
+          LOCAL_HOUR="$(TZ=Europe/Vienna date +%H)"
+          SHOULD_RUN="false"
+
+          echo "Wiener Wochentag: ${LOCAL_DAY}"
+          echo "Wiener Stunde: ${LOCAL_HOUR}"
+
+          if [ "${LOCAL_DAY}" = "7" ] && [ "${LOCAL_HOUR}" = "20" ]; then
+            SHOULD_RUN="true"
+          fi
+
+          if [ "${LOCAL_DAY}" = "1" ] && [ "${LOCAL_HOUR}" = "07" ]; then
+            SHOULD_RUN="true"
+          fi
+
+          if [ "${LOCAL_DAY}" -ge "2" ] && [ "${LOCAL_DAY}" -le "6" ]; then
+            case "${LOCAL_HOUR}" in
+              00|05|10|15|20)
+                SHOULD_RUN="true"
+                ;;
+            esac
+          fi
+
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            SHOULD_RUN="true"
+          fi
+
+          echo "should_run=${SHOULD_RUN}" >> "${GITHUB_OUTPUT}"
+
+      - name: Node.js installieren
+        if: steps.schedule.outputs.should_run == 'true'
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+
+      - name: Abhängigkeiten installieren
+        if: steps.schedule.outputs.should_run == 'true'
+        run: npm install
+
+      - name: JavaScript-Syntax prüfen
+        if: steps.schedule.outputs.should_run == 'true'
+        run: npm run check
+
+      - name: Aufgaben und Prüfungen als iCal erzeugen
+        if: steps.schedule.outputs.should_run == 'true'
+        env:
+          WEBUNTIS_SERVER: "elgym.webuntis.com"
+          WEBUNTIS_SCHOOL: ${{ secrets.WEBUNTIS_SCHOOL }}
+          WEBUNTIS_USERNAME: ${{ secrets.WEBUNTIS_USERNAME }}
+          WEBUNTIS_PASSWORD: ${{ secrets.WEBUNTIS_PASSWORD }}
+          OUTPUT_FILE: "aufgaben-pruefungen.ics"
+          CALENDAR_NAME: "WebUntis Aufgaben und Prüfungen"
+          DAYS_PAST: "30"
+          DAYS_FUTURE: "180"
+        run: npm run generate
+
+      - name: Kalenderdatei kontrollieren
+        if: steps.schedule.outputs.should_run == 'true'
+        shell: bash
+        run: |
+          if [ ! -f "aufgaben-pruefungen.ics" ]; then
+            echo "Fehler: aufgaben-pruefungen.ics wurde nicht erstellt."
+            exit 1
+          fi
+
+          echo "Kalenderdatei wurde erstellt:"
+          ls -lah aufgaben-pruefungen.ics
+
+      - name: Kalender in GitHub speichern
+        if: steps.schedule.outputs.should_run == 'true'
+        shell: bash
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+
+          git add aufgaben-pruefungen.ics
+
+          if git diff --cached --quiet; then
+            echo "Keine Änderungen vorhanden"
+            exit 0
+          fi
+
+          git commit -m "WebUntis Aufgaben und Prüfungen aktualisiert"
+          git push
